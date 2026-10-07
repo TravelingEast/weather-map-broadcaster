@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SkyWindow · Live Cams</title>
+  <meta name="description" content="Live streaming and still webcams from around the world, on a map, with local weather.">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="/vendor/markercluster/MarkerCluster.css">
+  <link rel="stylesheet" href="/vendor/markercluster/MarkerCluster.Default.css">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar" id="topbar">
+    <a class="brand" href="/" data-link>
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="4" fill="currentColor"/></svg>
+      <span>SkyWindow</span>
+    </a>
+    <form class="search" id="search-form" role="search">
+      <input id="search-input" type="search" placeholder="Search cams, cities, countries…" autocomplete="off" aria-label="Search cameras">
+    </form>
+    <nav class="nav">
+      <a href="/browse" data-link>Browse</a>
+      <a href="/map" data-link>Map</a>
+      <a href="/favorites" data-link>Favorites</a>
+    </nav>
+  </header>
+  <main id="app" tabindex="-1"></main>
+  <footer class="footer" id="footer">
+    <span>Camera images and streams belong to their owners. Weather by <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a>. Map © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors.</span>
+    <a href="/admin" data-link>Admin</a>
+  </footer>
+  <script src="/vendor/leaflet/leaflet.js"></script>
+  <script src="/vendor/markercluster/leaflet.markercluster.js"></script>
+  <script src="/vendor/hls/hls.min.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

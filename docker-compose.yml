@@ -1,0 +1,18 @@
+services:
+  web:
+    build: .
+    ports: ["3000:3000"]
+    environment:
+      ADMIN_TOKEN: ${ADMIN_TOKEN:?set ADMIN_TOKEN}
+      SNAPSHOT_RETENTION: 288
+      SNAPSHOT_MAX_AGE_HOURS: 72
+    volumes: ["camdata:/data"]
+    restart: unless-stopped
+  # Optional: RTSP -> HLS for your own IP cameras.
+  mediamtx:
+    image: bluenviron/mediamtx:latest
+    ports: ["8888:8888"]
+    volumes: ["./deploy/mediamtx.yml:/mediamtx.yml:ro"]
+    restart: unless-stopped
+volumes:
+  camdata:

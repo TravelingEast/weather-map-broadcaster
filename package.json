@@ -1,0 +1,26 @@
+{
+  "name": "weather-map-broadcaster",
+  "version": "0.1.0",
+  "description": "Live webcam directory: streaming and still cameras on a map, with archives, weather, and push ingest.",
+  "main": "src/server.js",
+  "private": true,
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TravelingEast/weather-map-broadcaster.git"
+  },
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.22.3",
+    "hls.js": "^1.7.3",
+    "leaflet": "1.9",
+    "leaflet.markercluster": "1.5"
+  }
+}

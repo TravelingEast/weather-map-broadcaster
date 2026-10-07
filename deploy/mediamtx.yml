@@ -1,0 +1,19 @@
+# MediaMTX: turns IP camera RTSP feeds into HLS the site can play.
+# Run: docker run --rm -p 8888:8888 -v $PWD/deploy/mediamtx.yml:/mediamtx.yml bluenviron/mediamtx
+# Each path is then playable at http://<host>:8888/<path>/index.m3u8
+# Register that URL in Admin as type "Live HLS stream". Put it behind HTTPS in production.
+hls: yes
+hlsAddress: :8888
+hlsVariant: lowLatency
+hlsAllowOrigin: "*"
+rtsp: yes
+rtmp: no
+webrtc: no
+srt: no
+
+paths:
+  # Pull from an IP camera only while someone is watching.
+  backyard:
+    source: rtsp://user:pass@192.168.1.50:554/stream1
+    sourceOnDemand: yes
+  # Add more cameras the same way.
