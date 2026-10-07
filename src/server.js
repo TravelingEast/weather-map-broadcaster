@@ -7,6 +7,8 @@ const express = require('express');
 const { CameraStore, filterCameras, CATEGORIES, KINDS, LIVE_KINDS, STILL_KINDS } = require('./store');
 const { SnapshotService, MAX_IMAGE_BYTES } = require('./snapshots');
 const { ImpactService, HAZARDS } = require('./impact');
+const { importSource, SOURCES, AREAS } = require('./importers');
+const { StormService } = require('./storms');
 
 const ROOT = path.join(__dirname, '..');
 
@@ -21,7 +23,7 @@ function bearer(req) {
   return h.startsWith('Bearer ') ? h.slice(7) : req.query.token || '';
 }
 
-function createApp({ dataDir, adminToken, retention, maxAgeHours, poll = true, log = console, meteomatics = {} } = {}) {
+function createApp({ dataDir, adminToken, retention, maxAgeHours, concurrency, poll = true, log = console, meteomatics = {}, importFetch, storms: stormOpts = {} } = {}) {
   dataDir = dataDir || path.join(ROOT, 'data');
   const camerasFile = path.join(dataDir, 'cameras.json');
   if (!fs.existsSync(camerasFile)) {
@@ -30,12 +32,35 @@ function createApp({ dataDir, adminToken, retention, maxAgeHours, poll = true, l
   }
 
   const store = new CameraStore(camerasFile);
-  const snaps = new SnapshotService({ store, dir: path.join(dataDir, 'snapshots'), retention, maxAgeHours, log });
+  const snaps = new SnapshotService({ store, dir: path.join(dataDir, 'snapshots'), retention, maxAgeHours, concurrency, log });
   const impacts = new ImpactService({ store, file: path.join(dataDir, 'impact.json'), log, ...meteomatics });
+  const storms = new StormService({ file: path.join(dataDir, 'storms.json'), log, ...stormOpts });
   if (poll) {
     snaps.start();
     impacts.start();
+    storms.start();
   }
+
+  // Meteomatics peaks at a camera in a window around a time (e.g. closest approach).
+  const forecastAround = (c, t, hours = 6) => {
+    const r = impacts.forCamera(c);
+    if (!r || !r.hours.length) return null;
+    const win = r.hours.filter((x) => Math.abs(x.t - t) <= hours * 3.6e6);
+    if (!win.length) return null;
+    const peak = win.reduce((a, b) => ((b.gust || 0) > (a.gust || 0) ? b : a));
+    return {
+      peakGust: peak.gust,
+      peakGustAt: peak.t,
+      precipTotal: Math.round(win.reduce((sum, x) => sum + (x.precip || 0), 0) * 10) / 10,
+      windowHours: hours,
+    };
+  };
+  const stormSummary = (st) => {
+    const now = Date.now();
+    const cur = st.points.reduce((a, b) => (Math.abs(b.t - now) < Math.abs(a.t - now) ? b : a));
+    const peak = st.points.reduce((a, b) => (b.windMph > a.windMph ? b : a));
+    return { id: st.id, name: st.name, shortName: st.shortName, advisory: st.advisory, issuedAt: st.issuedAt, source: st.source, points: st.points, nearestPoint: cur, peak };
+  };
 
   const app = express();
   app.disable('x-powered-by');
@@ -52,6 +77,7 @@ function createApp({ dataDir, adminToken, retention, maxAgeHours, poll = true, l
     const s = snaps.getStatus(c.id);
     const { ingestKey, ...pub } = c;
     const isStill = STILL_KINDS.includes(c.kind);
+    const archived = isStill || Boolean(c.snapshotUrl);
     return {
       ...pub,
       ...(admin && ingestKey ? { ingestKey } : {}),
@@ -60,9 +86,8 @@ function createApp({ dataDir, adminToken, retention, maxAgeHours, poll = true, l
       lastOk: s.lastOk,
       lastChecked: s.lastChecked,
       error: admin ? s.error : undefined,
-      thumbnail: isStill
-        ? (s.lastOk ? `/api/cameras/${c.id}/latest?t=${s.lastOk}` : null)
-        : c.poster || null,
+      archived,
+      thumbnail: archived && s.lastOk ? `/api/cameras/${c.id}/latest?t=${s.lastOk}` : isStill ? null : c.poster || null,
       // Browser-side URL to play. Stills are served through our cache.
       playUrl: isStill ? `/api/cameras/${c.id}/latest` : c.url,
       impact: impacts.summary(c),
@@ -117,7 +142,13 @@ function createApp({ dataDir, adminToken, retention, maxAgeHours, poll = true, l
       .filter((x) => x.id !== c.id)
       .slice(0, 8)
       .map((x) => ({ ...view(x), distanceKm: x.distanceKm }));
-    res.json({ camera: view(c), nearby });
+    const stormNear = storms.state.storms
+      .map((st) => {
+        const hit = storms.camerasNear(st, [c], 500)[0];
+        return hit ? { id: st.id, name: st.name, approach: hit.a, forecast: forecastAround(c, hit.a.at) } : null;
+      })
+      .filter(Boolean);
+    res.json({ camera: view(c), nearby, storms: stormNear });
   });
 
   // Cameras ranked by forecast weather impact (Meteomatics).
@@ -153,6 +184,20 @@ function createApp({ dataDir, adminToken, retention, maxAgeHours, poll = true, l
       events: r ? r.events : [],
       hours: r ? r.hours : [],
     });
+  });
+
+  app.get('/api/storms', (req, res) => {
+    res.json({ updatedAt: storms.state.updatedAt, error: storms.state.error || null, storms: storms.state.storms.map(stormSummary) });
+  });
+
+  // Cameras near a storm's forecast track, in order of closest approach, with Meteomatics peaks.
+  app.get('/api/storms/:id/cameras', (req, res) => {
+    const st = storms.get(req.params.id);
+    if (!st) return res.status(404).json({ error: 'not found' });
+    const maxKm = Math.min(Number(req.query.maxKm) || 300, 1500);
+    const list = filterCameras(store.all(), req.query);
+    const near = storms.camerasNear(st, list, maxKm).map(({ c, a }) => ({ ...view(c), approach: a, forecast: forecastAround(c, a.at) }));
+    res.json({ storm: stormSummary(st), maxKm, total: near.length, cameras: near });
   });
 
   app.get('/api/cameras/:id/latest', (req, res) => {
@@ -239,11 +284,61 @@ function createApp({ dataDir, adminToken, retention, maxAgeHours, poll = true, l
     res.json({ camera: view(c, { admin: true }) });
   });
 
+  app.post('/api/admin/storms/refresh', requireAdmin, async (req, res) => {
+    const st = await storms.refresh();
+    if (st.error) return res.status(502).json({ error: st.error });
+    res.json({ updatedAt: st.updatedAt, storms: st.storms.map((x) => x.name) });
+  });
+  // Fallback when api.weather.gov is unreachable: paste the NHC Forecast Discussion text.
+  app.post('/api/admin/storms/manual', requireAdmin, (req, res) => {
+    try {
+      const st = storms.addManual((req.body || {}).text);
+      res.status(201).json({ storm: stormSummary(st) });
+    } catch (e) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+  app.delete('/api/admin/storms/:id', requireAdmin, (req, res) => {
+    res.status(storms.remove(req.params.id) ? 204 : 404).end();
+  });
+
   app.post('/api/admin/impact/refresh', requireAdmin, async (req, res) => {
     if (!impacts.configured) return res.status(503).json({ error: 'Meteomatics credentials are not configured' });
     const st = await impacts.refresh();
     if (st.error) return res.status(502).json({ error: st.error });
     res.json({ updatedAt: st.updatedAt, locations: Object.keys(st.byLocation).length });
+  });
+
+  app.get('/api/admin/import/sources', requireAdmin, (req, res) => {
+    res.json({
+      sources: Object.entries(SOURCES).map(([id, s]) => ({ id, label: s.label, url: s.url })),
+      areas: AREAS,
+    });
+  });
+
+  // Bulk import DOT cameras inside an area. Safe to re-run: existing cams are updated in place.
+  app.post('/api/admin/import', requireAdmin, async (req, res) => {
+    const { source, bbox = 'north-gulf', refreshSeconds = 300, tags = [] } = req.body || {};
+    try {
+      const r = await importSource(store, source, { bbox, refreshSeconds, tags, fetchImpl: importFetch || fetch });
+      res.json(r);
+    } catch (e) {
+      res.status(/unknown source|bbox must/.test(e.message) ? 400 : 502).json({ error: e.message });
+    }
+  });
+
+  // Curated camera packs in seed/packs/*.json (e.g. a hurricane watchlist). Re-loading updates in place.
+  const packDir = path.join(ROOT, 'seed', 'packs');
+  const listPacks = () => (fs.existsSync(packDir) ? fs.readdirSync(packDir).filter((f) => f.endsWith('.json')) : [])
+    .map((f) => {
+      const p = JSON.parse(fs.readFileSync(path.join(packDir, f), 'utf8'));
+      return { id: f.replace(/\.json$/, ''), name: p.name, count: (p.cameras || []).length };
+    });
+  app.get('/api/admin/packs', requireAdmin, (req, res) => res.json({ packs: listPacks() }));
+  app.post('/api/admin/packs/:id', requireAdmin, (req, res) => {
+    if (!listPacks().some((p) => p.id === req.params.id)) return res.status(404).json({ error: 'unknown pack' });
+    const pack = JSON.parse(fs.readFileSync(path.join(packDir, `${req.params.id}.json`), 'utf8'));
+    res.json(store.upsertMany(pack.cameras || []));
   });
 
   // Static front end and vendored libraries.
@@ -258,7 +353,7 @@ function createApp({ dataDir, adminToken, retention, maxAgeHours, poll = true, l
   // SPA routes: /, /map, /cam/:slug, /country/:cc, /category/:cat, /favorites, /admin, /embed/:slug
   app.get('*', (req, res) => res.sendFile(path.join(ROOT, 'public', 'index.html')));
 
-  return { app, store, snaps, impacts };
+  return { app, store, snaps, impacts, storms };
 }
 
 if (require.main === module) {
@@ -268,11 +363,12 @@ if (require.main === module) {
     adminToken: process.env.ADMIN_TOKEN,
     retention: Number(process.env.SNAPSHOT_RETENTION) || 288,
     maxAgeHours: Number(process.env.SNAPSHOT_MAX_AGE_HOURS) || 72,
+    concurrency: Number(process.env.SNAPSHOT_CONCURRENCY) || 12,
     meteomatics: {
       username: process.env.METEOMATICS_USERNAME,
       password: process.env.METEOMATICS_PASSWORD,
       model: process.env.METEOMATICS_MODEL || 'mix',
-      horizonHours: Number(process.env.IMPACT_HORIZON_HOURS) || 48,
+      horizonHours: Number(process.env.IMPACT_HORIZON_HOURS) || 72,
       refreshMinutes: Number(process.env.IMPACT_REFRESH_MINUTES) || 60,
     },
   });

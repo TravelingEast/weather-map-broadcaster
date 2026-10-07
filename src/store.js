@@ -7,7 +7,8 @@ const crypto = require('crypto');
 // Camera kinds. "still" kinds are polled and archived by the server;
 // "live" kinds are played directly in the browser.
 const STILL_KINDS = ['image', 'push'];
-const LIVE_KINDS = ['hls', 'youtube', 'iframe', 'mjpeg'];
+// 'link' is a live cam hosted on a site that does not allow embedding (EarthCam, Skyline, etc.).
+const LIVE_KINDS = ['hls', 'youtube', 'iframe', 'mjpeg', 'link'];
 const KINDS = [...STILL_KINDS, ...LIVE_KINDS];
 
 const CATEGORIES = [
@@ -56,6 +57,10 @@ function validateCamera(input, existing = null) {
   }
 
   if (c.poster && !isHttpUrl(c.poster)) errors.push('poster must be an http(s) URL');
+  // Optional still endpoint for live cams: archived like an image cam, used for thumbnails and timelapse.
+  if (c.snapshotUrl && !isHttpUrl(c.snapshotUrl)) errors.push('snapshotUrl must be an http(s) URL');
+  if (!c.snapshotUrl || c.kind === 'image' || c.kind === 'push') c.snapshotUrl = '';
+  c.sourceKey = c.sourceKey ? String(c.sourceKey).slice(0, 120) : undefined;
 
   c.category = CATEGORIES.includes(c.category) ? c.category : 'other';
   c.country = String(c.country || '').toUpperCase().slice(0, 2);
@@ -151,6 +156,38 @@ class CameraStore {
     this.cameras.set(id, camera);
     this.save();
     return { camera };
+  }
+
+  // Bulk insert/update keyed by sourceKey (e.g. "algo:1234"). Saves once.
+  // Existing cams keep their id, slug, enabled and featured flags.
+  upsertMany(inputs) {
+    const byKey = new Map(this.all().filter((c) => c.sourceKey).map((c) => [c.sourceKey, c]));
+    let created = 0;
+    let updated = 0;
+    const errors = [];
+    const now = new Date().toISOString();
+    for (const input of inputs) {
+      const existing = byKey.get(input.sourceKey);
+      const { camera, errors: errs } = validateCamera(
+        existing ? { ...input, enabled: existing.enabled, featured: existing.featured } : input,
+        existing,
+      );
+      if (errs) { errors.push({ sourceKey: input.sourceKey, errors: errs }); continue; }
+      if (existing) {
+        camera.updatedAt = now;
+        updated += 1;
+      } else {
+        camera.id = crypto.randomUUID();
+        camera.slug = this.uniqueSlug(`${camera.name} ${camera.city}`.trim(), camera.id);
+        camera.createdAt = now;
+        camera.updatedAt = now;
+        created += 1;
+      }
+      this.cameras.set(camera.id, camera);
+      byKey.set(camera.sourceKey, camera);
+    }
+    if (created || updated) this.save();
+    return { created, updated, errors };
   }
 
   remove(id) {

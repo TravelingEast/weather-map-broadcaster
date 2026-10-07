@@ -166,7 +166,7 @@ const isoHour = (ms) => new Date(Math.floor(ms / 3.6e6) * 3.6e6).toISOString().r
 const locKey = (c) => `${c.lat.toFixed(3)},${c.lon.toFixed(3)}`;
 
 class ImpactService {
-  constructor({ store, username, password, file, horizonHours = 48, refreshMinutes = 60, model = 'mix', chunkSize = 50, fetchImpl = fetch, log = console }) {
+  constructor({ store, username, password, file, horizonHours = 72, refreshMinutes = 60, model = 'mix', chunkSize = 50, fetchImpl = fetch, log = console }) {
     this.store = store;
     this.username = username;
     this.password = password;

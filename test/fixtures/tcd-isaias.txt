@@ -1,0 +1,26 @@
+000
+WTNT44 KNHC 071500
+TCDAT4
+
+Tropical Storm Isaias Discussion Number   5
+NWS National Hurricane Center Miami FL       AL092026
+1000 AM CDT Wed Oct 07 2026
+
+Synthetic test fixture in the NHC TCD layout. Positions are illustrative,
+shaped on public reporting of a Friday evening landfall near the
+Mississippi-Alabama coast. Do not use for decisions.
+
+FORECAST POSITIONS AND MAX WINDS
+
+INIT  07/1500Z 22.6N  93.8W   50 KT  60 MPH
+ 12H  08/0000Z 23.4N  92.6W   60 KT  70 MPH
+ 24H  08/1200Z 24.8N  91.2W   70 KT  80 MPH
+ 36H  09/0000Z 26.4N  90.0W   80 KT  90 MPH
+ 48H  09/1200Z 28.1N  89.1W   90 KT 105 MPH
+ 60H  10/0000Z 30.3N  88.5W   95 KT 110 MPH
+ 72H  10/1200Z 32.1N  87.9W   45 KT  50 MPH...INLAND
+ 96H  11/1200Z 34.6N  85.6W   25 KT  30 MPH...POST-TROP/INLAND
+120H  12/1200Z...DISSIPATED
+
+$$
+Forecaster Example

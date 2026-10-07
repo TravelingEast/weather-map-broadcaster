@@ -51,7 +51,8 @@ async function readLimited(res, limit) {
 
 // Polls still cameras, archives frames to disk, and health-checks streams.
 class SnapshotService {
-  constructor({ store, dir, retention = 288, maxAgeHours = 72, log = console }) {
+  constructor({ store, dir, retention = 288, maxAgeHours = 72, concurrency = 12, log = console }) {
+    this.concurrency = concurrency;
     this.store = store;
     this.dir = dir;
     this.retention = retention;
@@ -156,7 +157,7 @@ class SnapshotService {
   }
 
   async pollImage(cam) {
-    const res = await fetchWithTimeout(cam.url);
+    const res = await fetchWithTimeout(cam.snapshotUrl || cam.url);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const buf = await readLimited(res, MAX_IMAGE_BYTES);
     return this.saveFrame(cam.id, buf, res.headers.get('content-type'));
@@ -186,7 +187,7 @@ class SnapshotService {
   isDue(cam) {
     const s = this.getStatus(cam.id);
     if (!s.lastChecked) return true;
-    const interval = cam.kind === 'image' ? cam.refreshSeconds * 1000 : 10 * 60 * 1000;
+    const interval = cam.kind === 'image' || cam.snapshotUrl ? cam.refreshSeconds * 1000 : 10 * 60 * 1000;
     // Back off on failures: double the wait, capped at 1 h.
     const backoff = s.status === 'offline' ? Math.min(interval * 2 ** Math.min(s.failures || 0, 6), 3600 * 1000) : interval;
     return Date.now() - s.lastChecked >= backoff;
@@ -203,7 +204,7 @@ class SnapshotService {
   async runCheck(cam) {
     try {
       let s;
-      if (cam.kind === 'image') s = await this.pollImage(cam);
+      if (cam.kind === 'image' || cam.snapshotUrl) s = await this.pollImage(cam);
       else if (cam.kind === 'hls') s = await this.checkHls(cam);
       else if (cam.kind === 'mjpeg') s = await this.checkMjpeg(cam);
       else if (cam.kind === 'push') {
@@ -211,7 +212,7 @@ class SnapshotService {
         const st = this.getStatus(cam.id);
         const fresh = st.lastOk && Date.now() - st.lastOk < cam.refreshSeconds * 3000;
         s = this.setStatus(cam.id, { status: fresh ? 'online' : st.lastOk ? 'stale' : 'waiting' });
-      } else s = this.setStatus(cam.id, { status: 'embed' });
+      } else s = this.setStatus(cam.id, { status: cam.kind === 'link' ? 'external' : 'embed' });
       if (s.status === 'online') this.status.set(cam.id, { ...s, failures: 0 });
       return this.getStatus(cam.id);
     } catch (err) {
@@ -225,7 +226,7 @@ class SnapshotService {
     const due = this.store.all().filter((c) => c.enabled !== false && this.isDue(c));
     // Limit concurrency so a large catalog does not open hundreds of sockets at once.
     const queue = [...due];
-    const workers = Array.from({ length: Math.min(6, queue.length) }, async () => {
+    const workers = Array.from({ length: Math.min(this.concurrency, queue.length) }, async () => {
       while (queue.length) await this.check(queue.shift());
     });
     await Promise.all(workers);

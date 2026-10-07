@@ -1,0 +1,322 @@
+{
+  "name": "Hurricane Isaias: north Gulf watchlist",
+  "createdFor": "2026-10-09 landfall forecast near the Mississippi-Alabama coast",
+  "cameras": [
+    {
+      "sourceKey": "pack:earthcam-bourbon",
+      "name": "Bourbon Street (EarthCam)",
+      "kind": "link",
+      "url": "https://www.earthcam.com/usa/louisiana/neworleans/bourbonstreet/",
+      "lat": 29.9585,
+      "lon": -90.065,
+      "city": "New Orleans",
+      "region": "Louisiana",
+      "country": "US",
+      "category": "landmark",
+      "source": "EarthCam",
+      "sourceUrl": "https://www.earthcam.com/usa/louisiana/neworleans/bourbonstreet/",
+      "description": "Three views of Bourbon Street at St. Peter, street level and balcony. Good for crowds, rain bands, and flooding in the French Quarter.",
+      "tags": [
+        "isaias",
+        "crowds",
+        "street"
+      ],
+      "featured": true
+    },
+    {
+      "sourceKey": "pack:wafb-grand-isle",
+      "name": "Grand Isle Gulf Coast Cam (WAFB)",
+      "kind": "link",
+      "url": "https://www.wafb.com/2025/11/04/wafb-unveils-new-gulf-coast-cam-grand-isle/",
+      "lat": 29.213,
+      "lon": -90.041,
+      "city": "Grand Isle",
+      "region": "Louisiana",
+      "country": "US",
+      "category": "beach",
+      "source": "WAFB",
+      "sourceUrl": "https://www.wafb.com/2025/11/04/wafb-unveils-new-gulf-coast-cam-grand-isle/",
+      "description": "WAFB beach cam at Hurricane Hole Marina & Resort. Exposed barrier island, early surge and wave indicator for southeast Louisiana.",
+      "tags": [
+        "isaias",
+        "surge",
+        "barrier-island"
+      ]
+    },
+    {
+      "sourceKey": "pack:windfinder-grand-isle",
+      "name": "Grand Isle webcams (Windfinder)",
+      "kind": "link",
+      "url": "https://www.windfinder.com/webcams/grand_isle",
+      "lat": 29.2366,
+      "lon": -89.9873,
+      "city": "Grand Isle",
+      "region": "Louisiana",
+      "country": "US",
+      "category": "beach",
+      "source": "Windfinder",
+      "sourceUrl": "https://www.windfinder.com/webcams/grand_isle",
+      "description": "Windfinder listing of Grand Isle webcams.",
+      "tags": [
+        "isaias",
+        "surge"
+      ]
+    },
+    {
+      "sourceKey": "pack:windfinder-gulf-park",
+      "name": "Gulf Park Estates webcams (Windfinder)",
+      "kind": "link",
+      "url": "https://www.windfinder.com/webcams/gulf_park_estates",
+      "lat": 30.37,
+      "lon": -88.74,
+      "city": "Gulf Park Estates",
+      "region": "Mississippi",
+      "country": "US",
+      "category": "beach",
+      "source": "Windfinder",
+      "sourceUrl": "https://www.windfinder.com/webcams/gulf_park_estates",
+      "description": "Windfinder listing near Ocean Springs and Pascagoula on the Mississippi Sound.",
+      "tags": [
+        "isaias",
+        "surge"
+      ]
+    },
+    {
+      "sourceKey": "pack:mdot-traffic",
+      "name": "MDOT Traffic cameras (Mississippi)",
+      "kind": "link",
+      "url": "https://www.mdottraffic.com/",
+      "lat": 30.405,
+      "lon": -88.898,
+      "city": "Biloxi",
+      "region": "Mississippi",
+      "country": "US",
+      "category": "traffic",
+      "source": "MDOT",
+      "sourceUrl": "https://www.mdottraffic.com/",
+      "description": "Mississippi DOT live traffic cameras, including about 90 on I-10 in Jackson County. No public API, so these open on MDOT Traffic.",
+      "tags": [
+        "isaias",
+        "evacuation",
+        "i-10"
+      ],
+      "featured": true
+    },
+    {
+      "sourceKey": "pack:hurricanetrack",
+      "name": "HurricaneTrack field cams",
+      "kind": "link",
+      "url": "https://hurricanetrack.com/",
+      "lat": 30.3658,
+      "lon": -88.5561,
+      "city": "Pascagoula",
+      "region": "Mississippi",
+      "country": "US",
+      "category": "weather",
+      "source": "HurricaneTrack.com",
+      "sourceUrl": "https://hurricanetrack.com/",
+      "description": "Mark Sudduth deploys live cameras and a wind tower in the landfall zone ahead of the eye. Pascagoula has a permanent weather station cam (premium).",
+      "tags": [
+        "isaias",
+        "field-team",
+        "wind"
+      ],
+      "featured": true
+    },
+    {
+      "sourceKey": "pack:dauphin-island-pier",
+      "name": "Dauphin Island Pier cam",
+      "kind": "link",
+      "url": "https://www.surf-forecast.com/breaks/Dauphin-Island-Pier/webcams/latest",
+      "lat": 30.2496,
+      "lon": -88.11,
+      "city": "Dauphin Island",
+      "region": "Alabama",
+      "country": "US",
+      "category": "beach",
+      "source": "Surf-forecast.com",
+      "sourceUrl": "https://www.surf-forecast.com/breaks/Dauphin-Island-Pier/webcams/latest",
+      "description": "Pier cam on Dauphin Island at the mouth of Mobile Bay. Exposed to surge on the right side of the track.",
+      "tags": [
+        "isaias",
+        "surge",
+        "pier"
+      ]
+    },
+    {
+      "sourceKey": "pack:skyline-gulf-shores",
+      "name": "Gulf Shores beach (SkylineWebcams)",
+      "kind": "link",
+      "url": "https://www.skylinewebcams.com/en/webcam/united-states/alabama/gulf-shores/gulf-shores.html",
+      "lat": 30.2463,
+      "lon": -87.7008,
+      "city": "Gulf Shores",
+      "region": "Alabama",
+      "country": "US",
+      "category": "beach",
+      "source": "SkylineWebcams",
+      "sourceUrl": "https://www.skylinewebcams.com/en/webcam/united-states/alabama/gulf-shores/gulf-shores.html",
+      "description": "Live HD view of the Gulf Shores public beach.",
+      "tags": [
+        "isaias",
+        "surf"
+      ],
+      "featured": true
+    },
+    {
+      "sourceKey": "pack:skyline-orange-beach",
+      "name": "Orange Beach (SkylineWebcams)",
+      "kind": "link",
+      "url": "https://www.skylinewebcams.com/en/webcam/united-states/alabama/orange-beach/orange-beach.html",
+      "lat": 30.2694,
+      "lon": -87.5745,
+      "city": "Orange Beach",
+      "region": "Alabama",
+      "country": "US",
+      "category": "beach",
+      "source": "SkylineWebcams",
+      "sourceUrl": "https://www.skylinewebcams.com/en/webcam/united-states/alabama/orange-beach/orange-beach.html",
+      "description": "Live HD view of Orange Beach.",
+      "tags": [
+        "isaias",
+        "surf"
+      ]
+    },
+    {
+      "sourceKey": "pack:earthcam-pensacola-beach",
+      "name": "Pensacola Beach (EarthCam)",
+      "kind": "link",
+      "url": "https://www.earthcam.com/usa/florida/pensacola/beach",
+      "lat": 30.3335,
+      "lon": -87.138,
+      "city": "Pensacola Beach",
+      "region": "Florida",
+      "country": "US",
+      "category": "beach",
+      "source": "EarthCam",
+      "sourceUrl": "https://www.earthcam.com/usa/florida/pensacola/beach",
+      "description": "EarthCam view of the beach from Café NOLA.",
+      "tags": [
+        "isaias",
+        "surf"
+      ]
+    },
+    {
+      "sourceKey": "pack:earthcam-pensacola-gulf",
+      "name": "Pensacola Gulf Beach (EarthCam)",
+      "kind": "link",
+      "url": "https://www.earthcam.com/usa/florida/pensacola/gulf/",
+      "lat": 30.3305,
+      "lon": -87.152,
+      "city": "Pensacola Beach",
+      "region": "Florida",
+      "country": "US",
+      "category": "beach",
+      "source": "EarthCam",
+      "sourceUrl": "https://www.earthcam.com/usa/florida/pensacola/gulf/",
+      "description": "Second EarthCam beachfront view in Pensacola.",
+      "tags": [
+        "isaias",
+        "surf"
+      ]
+    },
+    {
+      "sourceKey": "pack:pensacola-surf",
+      "name": "Pensacola surf cams",
+      "kind": "link",
+      "url": "https://pensacolasurf.com/webcams",
+      "lat": 30.329,
+      "lon": -87.145,
+      "city": "Pensacola Beach",
+      "region": "Florida",
+      "country": "US",
+      "category": "beach",
+      "source": "Pensacola Surf",
+      "sourceUrl": "https://pensacolasurf.com/webcams",
+      "description": "Local surf cam roundup for Pensacola Beach and Perdido Key.",
+      "tags": [
+        "isaias",
+        "surf"
+      ]
+    },
+    {
+      "sourceKey": "pack:emerald-coast-cams",
+      "name": "Navarre and Destin beach cams",
+      "kind": "link",
+      "url": "https://theemeraldcoastguide.com/cams",
+      "lat": 30.3784,
+      "lon": -86.865,
+      "city": "Navarre Beach",
+      "region": "Florida",
+      "country": "US",
+      "category": "beach",
+      "source": "Emerald Coast Guide",
+      "sourceUrl": "https://theemeraldcoastguide.com/cams",
+      "description": "Eight beach cams across Navarre, Pensacola Beach and Destin. No signup needed.",
+      "tags": [
+        "isaias",
+        "surf"
+      ]
+    },
+    {
+      "sourceKey": "pack:earthcam-destin",
+      "name": "Destin Harbor and East Pass (EarthCam)",
+      "kind": "link",
+      "url": "https://www.earthcam.com/usa/florida/destin/",
+      "lat": 30.3935,
+      "lon": -86.513,
+      "city": "Destin",
+      "region": "Florida",
+      "country": "US",
+      "category": "harbor",
+      "source": "EarthCam",
+      "sourceUrl": "https://www.earthcam.com/usa/florida/destin/",
+      "description": "Aerial view of Destin Harbor, East Pass, and Crab Island. Shows boat traffic and surge at the pass.",
+      "tags": [
+        "isaias",
+        "harbor",
+        "surge"
+      ]
+    },
+    {
+      "sourceKey": "pack:earthcam-pcb",
+      "name": "Panama City Beach (EarthCam)",
+      "kind": "link",
+      "url": "https://www.earthcam.com/usa/florida/panamacity/",
+      "lat": 30.1766,
+      "lon": -85.8055,
+      "city": "Panama City Beach",
+      "region": "Florida",
+      "country": "US",
+      "category": "beach",
+      "source": "EarthCam",
+      "sourceUrl": "https://www.earthcam.com/usa/florida/panamacity/",
+      "description": "Beach and pier view on Panama City Beach. Eastern edge of the forecast cone.",
+      "tags": [
+        "isaias",
+        "surf",
+        "pier"
+      ]
+    },
+    {
+      "sourceKey": "pack:ryan-hall-live",
+      "name": "Ryan Hall, Y'all live coverage (roaming)",
+      "kind": "link",
+      "url": "https://www.youtube.com/@RyanHallYall/live",
+      "lat": 30.6954,
+      "lon": -88.0399,
+      "city": "Mobile",
+      "region": "Alabama",
+      "country": "US",
+      "category": "other",
+      "source": "YouTube",
+      "sourceUrl": "https://www.youtube.com/@RyanHallYall/live",
+      "description": "Independent meteorologist streaming live hurricane coverage, often with field crews. Location is roaming. Pinned to Mobile for the map.",
+      "tags": [
+        "isaias",
+        "storm-chaser",
+        "roaming"
+      ]
+    }
+  ]
+}

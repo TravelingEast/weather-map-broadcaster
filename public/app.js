@@ -105,6 +105,8 @@
     return { embed: null, id: null };
   }
 
+  const hostOf = (u) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return 'source site'; } };
+
   function thumbFor(c) {
     if (c.thumbnail) return c.thumbnail;
     if (c.kind === 'youtube') {
@@ -112,6 +114,7 @@
       if (id) return `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
     }
     if (c.kind === 'mjpeg') return null; // do not open endless streams just for thumbnails
+    if (c.kind === 'link') return c.poster || null;
     return null;
   }
 
@@ -140,8 +143,8 @@
     const t = h('div.thumb',
       src
         ? h('img', { src, alt: '', loading: 'lazy', onerror: (e) => e.target.replaceWith(h('div.placeholder', c.live ? 'Live stream' : 'No image yet')) })
-        : h('div.placeholder', c.live ? '▶ Live stream' : 'Waiting for first image'),
-      h(`span.badge.${c.live ? 'live' : 'still'}`, c.live ? 'LIVE' : 'STILL'),
+        : h('div.placeholder', c.kind === 'link' ? `↗ Watch on ${c.source || hostOf(c.url)}` : c.live ? '▶ Live stream' : 'Waiting for first image'),
+      h(`span.badge.${c.live ? 'live' : 'still'}`, c.kind === 'link' ? 'LIVE ↗' : c.live ? 'LIVE' : 'STILL'),
       !c.live && c.lastOk ? h('span.age', ago(c.lastOk)) : null,
       impactChip(c),
       fav ? favButton(c) : null,
@@ -177,7 +180,32 @@
 
   // Player for any camera kind. Returns { el, destroy }.
   function player(c, { timelapse = false } = {}) {
+    // Live cams that also have a snapshot feed get a Live / Archive switch.
+    if (timelapse && c.live && c.archived) {
+      let current = null;
+      const holder = h('div');
+      const liveBtn = h('button.btn.small', { type: 'button', 'aria-pressed': 'true' }, '● Live');
+      const archBtn = h('button.btn.small', { type: 'button', 'aria-pressed': 'false' }, '⏱ Archive and timelapse');
+      const show = (archive) => {
+        if (current) current.destroy();
+        current = archive ? player({ ...c, kind: 'image', live: false }, { timelapse: true }) : player(c);
+        holder.replaceChildren(current.el);
+        liveBtn.setAttribute('aria-pressed', String(!archive));
+        archBtn.setAttribute('aria-pressed', String(archive));
+      };
+      liveBtn.addEventListener('click', () => show(false));
+      archBtn.addEventListener('click', () => show(true));
+      show(false);
+      return { el: h('div', holder, h('div.row', { style: { marginTop: '8px' } }, liveBtn, archBtn)), destroy: () => current && current.destroy() };
+    }
     const box = h('div.player');
+    if (c.kind === 'link') {
+      box.append(h('div.msg.link-msg',
+        c.poster ? h('img', { src: c.poster, alt: '' }) : null,
+        h('p', `This camera streams on ${c.source || hostOf(c.url)}, which doesn't allow embedding.`),
+        h('a.btn.primary', { href: c.url, target: '_blank', rel: 'noopener' }, `Watch live on ${hostOf(c.url)} ↗`)));
+      return { el: box, destroy: () => {} };
+    }
     const destroyers = [];
 
     if (c.kind === 'hls') {
@@ -643,6 +671,122 @@
     );
   }
 
+  // ---------- storm tracker (NHC forecast track vs cameras) ----------
+
+  const BANDS = [[50, 'Core: eyewall and worst surge'], [150, 'Strong impacts'], [Infinity, 'Outer rain bands']];
+  const bandOf = (km) => BANDS.findIndex(([max]) => km <= max);
+
+  function approachText(a, tz) {
+    const side = a.side === 'center' ? 'near the center' : `${a.km} km, ${a.side} side`;
+    return `Closest ${fmtWhen(a.at, tz)} · ${side} · storm ${a.windMph} mph (${a.category})`;
+  }
+
+  function forecastText(f) {
+    if (!f) return null;
+    return `Meteomatics at cam: gusts to ${fmtVal(f.peakGust, 'ms')}, ${fmtVal(f.precipTotal, 'mm')} rain within ±${f.windowHours}h`;
+  }
+
+  async function viewStorm(params, stormId) {
+    document.title = 'Storm Tracker · SkyWindow';
+    const list = await api('/api/storms');
+    const head = h('div.row', h('h1', 'Storm Tracker'), h('span.spacer'),
+      list.updatedAt ? h('span.muted', `NHC forecast via NWS · checked ${ago(list.updatedAt)}`) : null);
+    if (!list.storms.length) {
+      setView(head, h('div.empty',
+        h('p', list.error ? `Could not reach the NWS feed: ${list.error}` : 'No active NHC storms right now.'),
+        h('p.muted', 'Admins can paste an NHC Forecast Discussion on the admin page to track a storm by hand.')));
+      return;
+    }
+    const st = list.storms.find((x) => x.id === stormId) || list.storms[0];
+    const maxKm = params.get('maxKm') || '300';
+    const type = params.get('type') || '';
+    const category = params.get('category') || '';
+    const q = new URLSearchParams({ maxKm, ...(type ? { type } : {}), ...(category ? { category } : {}) });
+    const r = await api(`/api/storms/${st.id}/cameras?${q}`);
+    const link = (patch) => {
+      const p = new URLSearchParams({ maxKm, type, category, ...patch });
+      [...p.keys()].forEach((k) => { if (!p.get(k)) p.delete(k); });
+      return `/storm/${st.id}?${p}`;
+    };
+
+    const tabs = list.storms.length > 1
+      ? h('div.chips', list.storms.map((x) => h(`a.chip${x.id === st.id ? '.active' : ''}`, { href: `/storm/${x.id}`, 'data-link': true }, x.name))) : null;
+    const filters = h('div.chips',
+      [['', 'All cams'], ['live', '● Live only'], ['still', 'Stills']].map(([v, t]) => h(`a.chip${type === v ? '.active' : ''}`, { href: link({ type: v }), 'data-link': true }, t)),
+      h('span.muted', { style: { padding: '5px 4px' } }, '·'),
+      [['', 'Any'], ['beach', 'Beach'], ['traffic', 'Traffic'], ['landmark', 'Landmark'], ['harbor', 'Harbor']].map(([v, t]) => h(`a.chip${category === v ? '.active' : ''}`, { href: link({ category: v }), 'data-link': true }, t)),
+      h('span.muted', { style: { padding: '5px 4px' } }, '·'),
+      ['150', '300', '500'].map((v) => h(`a.chip${maxKm === v ? '.active' : ''}`, { href: link({ maxKm: v }), 'data-link': true }, `≤${v} km`)));
+
+    const peak = st.peak;
+    const summary = h('div.panel.storm-head',
+      h('div', h('h2', { style: { margin: 0 } }, st.name),
+        h('div.muted', `${st.advisory ? `Discussion ${st.advisory} · ` : ''}${st.source === 'manual' ? 'pasted by admin' : 'NHC'} · issued ${ago(st.issuedAt)}`)),
+      h('div.storm-stats',
+        h('div.stat', h('b', `${peak.windMph} mph`), h('span', `Forecast peak (${category_(peak.windMph)}) ${fmtWhen(peak.t)}`)),
+        h('div.stat', h('b', r.total), h('span', `cameras within ${maxKm} km of the track`)),
+        h('div.stat', h('b', r.cameras.filter((c) => c.live).length), h('span', 'live streams'))));
+
+    // Map: track, forecast points, a 150 km corridor (not the official cone), and cameras.
+    const mapEl = h('div#map');
+    const listEl = h('div.storm-list');
+    // Group by distance band (closest first), then by time of closest approach within each band.
+    const ordered = [...r.cameras].sort((a, b) => bandOf(a.approach.km) - bandOf(b.approach.km) || a.approach.at - b.approach.at);
+    let groupIdx = -1;
+    for (const c of ordered) {
+      const b = bandOf(c.approach.km);
+      if (b !== groupIdx) {
+        groupIdx = b;
+        listEl.append(h('h3.band-head', BANDS[b][1], h('span.muted', ` (≤${BANDS[b][0] === Infinity ? maxKm : BANDS[b][0]} km)`)));
+      }
+      listEl.append(h('a.storm-row', { href: `/cam/${c.slug}`, 'data-link': true, 'data-id': c.id },
+        h('div.impact-thumb', thumbBlock(c, { fav: false })),
+        h('div.impact-main',
+          h('div.row', h('b', c.name), c.impact && c.impact.level ? levelTag(c.impact.level) : null),
+          h('div.muted', `${flag(c.country)} ${place(c)} · ${cap(c.category)}`),
+          h('div', approachText(c.approach, c.timezone)),
+          forecastText(c.forecast) ? h('div.muted.small', forecastText(c.forecast)) : null)));
+    }
+    if (!r.cameras.length) listEl.append(h('div.empty', 'No cameras match within this distance. Try a wider radius or import more cameras.'));
+
+    setView(head, tabs, summary, filters,
+      h('div.storm-layout', h('div.storm-map', mapEl), listEl),
+      h('p.muted.small', 'Track: NHC forecast positions joined with straight lines. The shaded corridor is 150 km either side of the track, not the official NHC cone. "Right side" means right of the direction of motion, where surge and wind are usually worst.'));
+
+    const map = L.map(mapEl, { worldCopyJump: true });
+    cleanup.push(() => map.remove());
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      maxZoom: 19, subdomains: 'abcd',
+      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> © <a href="https://carto.com/attributions">CARTO</a>',
+    }).addTo(map);
+    const latlngs = st.points.map((p) => [p.lat, p.lon]);
+    st.points.forEach((p) => L.circle([p.lat, p.lon], { radius: 150000, stroke: false, fillColor: '#ec835a', fillOpacity: 0.08, interactive: false }).addTo(map));
+    L.polyline(latlngs, { color: '#ec835a', weight: 3, dashArray: '6 6' }).addTo(map);
+    st.points.forEach((p) => {
+      const cat = category_(p.windMph);
+      L.marker([p.lat, p.lon], {
+        icon: L.divIcon({ className: '', html: `<div class="track-pt">${cat === 'TS' || cat === 'TD' ? cat : cat.replace('Cat ', '')}</div>`, iconSize: [22, 22] }),
+        title: `${fmtWhen(p.t)} · ${p.windMph} mph`,
+      }).bindTooltip(`${fmtWhen(p.t)}<br>${p.windMph} mph (${cat})${p.note ? `<br>${p.note}` : ''}`).addTo(map);
+    });
+    const pins = L.layerGroup().addTo(map);
+    for (const c of r.cameras) {
+      const icon = L.divIcon({ className: '', html: `<div class="pin ${c.live ? 'live' : 'still'}"></div>`, iconSize: [14, 14] });
+      L.marker([c.lat, c.lon], { icon, title: c.name })
+        .bindPopup(() => h('div.popup', h('b', c.name), h('div.muted', approachText(c.approach, c.timezone)),
+          h('a', { href: `/cam/${c.slug}`, 'data-link': true }, 'Watch →')))
+        .addTo(pins);
+    }
+    const bounds = L.latLngBounds(latlngs);
+    r.cameras.forEach((c) => bounds.extend([c.lat, c.lon]));
+    map.fitBounds(bounds.pad(0.1));
+  }
+
+  // Category label shared with the server's thresholds (mph).
+  function category_(mph) {
+    return mph >= 157 ? 'Cat 5' : mph >= 130 ? 'Cat 4' : mph >= 111 ? 'Cat 3' : mph >= 96 ? 'Cat 2' : mph >= 74 ? 'Cat 1' : mph >= 39 ? 'TS' : 'TD';
+  }
+
   // ---------- views ----------
 
   async function viewHome() {
@@ -825,10 +969,10 @@
       if (e.status === 404) return viewNotFound();
       throw e;
     }
-    const { camera: c, nearby } = data;
+    const { camera: c, nearby, storms: stormsNear = [] } = data;
     document.title = `${c.name} · SkyWindow`;
 
-    const p = player(c, { timelapse: !c.live && !embed });
+    const p = player(c, { timelapse: !embed && (!c.live || c.archived) });
     cleanup.push(p.destroy);
     if (embed) {
       setView(p.el);
@@ -865,7 +1009,9 @@
     });
 
     const embedCode = `<iframe src="${location.origin}/embed/${c.slug}" width="640" height="360" frameborder="0" allowfullscreen></iframe>`;
-    const statusText = c.live
+    const statusText = c.kind === 'link'
+      ? `Streams on ${hostOf(c.url)}`
+      : c.live
       ? (c.status === 'online' ? 'Stream reachable' : c.status === 'offline' ? 'Stream unreachable' : 'Embedded player')
       : c.lastOk ? `Updated ${ago(c.lastOk)}` : 'Waiting for first image';
 
@@ -886,6 +1032,9 @@
           c.description ? h('p', c.description) : null,
           c.source ? h('p.muted', 'Source: ', c.sourceUrl ? h('a', { href: c.sourceUrl, target: '_blank', rel: 'noopener' }, c.source) : c.source) : null,
           c.tags && c.tags.length ? h('div.chips', c.tags.map((t) => h('a.chip', { href: `/browse?q=${encodeURIComponent(t)}`, 'data-link': true }, `#${t}`))) : null,
+          stormsNear.map((s) => h('a.panel.storm-banner', { href: `/storm/${s.id}`, 'data-link': true },
+            h('b', `🌀 ${s.name}`), h('div', approachText(s.approach, tz)),
+            forecastText(s.forecast) ? h('div.muted', forecastText(s.forecast)) : null)),
           impactPanel(c, () => tz),
           h('details', { style: { marginTop: '16px' } }, h('summary.muted', 'Embed this camera'), h('pre', embedCode)),
         ),
@@ -1049,6 +1198,7 @@
             e.target.disabled = false;
           } }, '⚠ Refresh weather scan'),
           h('button.btn', { type: 'button', onclick: () => { sessionStorage.removeItem('adminToken'); token = ''; login(); } }, 'Sign out')),
+        importPanel(),
         h('div.admin-grid',
           h('div.panel.table-wrap',
             h('h3', `${list.length} cameras`),
@@ -1057,6 +1207,58 @@
         ),
       );
     };
+
+    // Bulk import from DOT feeds and curated packs.
+    function importPanel() {
+      const out = h('div.muted', { style: { marginTop: '8px' } });
+      const srcSel = h('select', { 'aria-label': 'Source' });
+      const areaSel = h('select', { 'aria-label': 'Area' });
+      const refresh = h('input.input', { type: 'number', min: '60', value: '300', 'aria-label': 'Snapshot refresh seconds', style: { width: '110px' } });
+      const packs = h('div.row');
+      const run = h('button.btn.primary', { type: 'button' }, 'Import');
+      api('/api/admin/import/sources', { headers: auth() }).then((r) => {
+        srcSel.replaceChildren(...r.sources.map((x) => h('option', { value: x.id }, x.label)));
+        areaSel.replaceChildren(...Object.keys(r.areas).map((k) => h('option', { value: k, selected: k === 'north-gulf' }, `${k} (${r.areas[k].join(', ')})`)));
+      }).catch(() => {});
+      api('/api/admin/packs', { headers: auth() }).then((r) => {
+        packs.replaceChildren(...r.packs.map((p) => h('button.btn', { type: 'button', onclick: async () => {
+          out.textContent = `Loading ${p.name}…`;
+          try {
+            const x = await api(`/api/admin/packs/${p.id}`, { method: 'POST', headers: auth() });
+            out.textContent = `${p.name}: ${x.created} added, ${x.updated} updated${x.errors.length ? `, ${x.errors.length} rejected` : ''}.`;
+            render();
+          } catch (e) { out.textContent = `Failed: ${e.message}`; }
+        } }, `＋ ${p.name} (${p.count})`)));
+      }).catch(() => {});
+      run.addEventListener('click', async () => {
+        run.disabled = true;
+        out.textContent = 'Importing… large feeds can take a minute.';
+        try {
+          const x = await api('/api/admin/import', { method: 'POST', headers: auth(), body: JSON.stringify({ source: srcSel.value, bbox: areaSel.value, refreshSeconds: Number(refresh.value) }) });
+          out.textContent = `${x.source}: ${x.fetched} in feed, ${x.matched} in area, ${x.created} added, ${x.updated} updated${x.errors.length ? `, ${x.errors.length} rejected` : ''}.`;
+          render();
+        } catch (e) { out.textContent = `Import failed: ${e.message}`; }
+        run.disabled = false;
+      });
+      const tcd = h('textarea', { rows: '4', placeholder: 'Paste an NHC Forecast Discussion (TCD) here if the NWS feed is unreachable…' });
+      const stormRow = h('div', { style: { marginTop: '12px' } },
+        h('h3', 'Storms'),
+        h('div.row',
+          h('button.btn', { type: 'button', onclick: async () => {
+            out.textContent = 'Checking NHC discussions…';
+            try { const x = await api('/api/admin/storms/refresh', { method: 'POST', headers: auth() }); out.textContent = x.storms.length ? `Active: ${x.storms.join(', ')}` : 'No active storms found.'; } catch (e) { out.textContent = `Storm refresh failed: ${e.message}`; }
+          } }, '🌀 Refresh NHC storms'),
+          h('button.btn', { type: 'button', onclick: async () => {
+            try { const x = await api('/api/admin/storms/manual', { method: 'POST', headers: auth(), body: JSON.stringify({ text: tcd.value }) }); out.textContent = `Added ${x.storm.name} with ${x.storm.points.length} forecast points.`; tcd.value = ''; } catch (e) { out.textContent = `Could not read that discussion: ${e.message}`; }
+          } }, 'Add pasted discussion')),
+        h('div', { style: { marginTop: '8px' } }, tcd));
+      return h('div.panel',
+        h('h3', 'Import cameras'),
+        h('div.row', srcSel, areaSel, h('label.row.muted', 'Refresh (s) ', refresh), run),
+        h('div.row', { style: { marginTop: '10px' } }, h('span.muted', 'Curated packs:'), packs),
+        stormRow,
+        out);
+    }
 
     if (!token) return login();
     return render();
@@ -1092,6 +1294,7 @@
       else if ((parts[0] === 'cam' || embed) && parts[1]) await viewCam(parts[1], { embed });
       else if (parts[0] === 'favorites') await viewFavorites();
       else if (parts[0] === 'impact') await viewImpact(params);
+      else if (parts[0] === 'storm') await viewStorm(params, parts[1]);
       else if (parts[0] === 'admin') await viewAdmin();
       else viewNotFound();
     } catch (e) {
