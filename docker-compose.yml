@@ -6,6 +6,8 @@ services:
       ADMIN_TOKEN: ${ADMIN_TOKEN:?set ADMIN_TOKEN}
       SNAPSHOT_RETENTION: 288
       SNAPSHOT_MAX_AGE_HOURS: 72
+      METEOMATICS_USERNAME: ${METEOMATICS_USERNAME:-}
+      METEOMATICS_PASSWORD: ${METEOMATICS_PASSWORD:-}
     volumes: ["camdata:/data"]
     restart: unless-stopped
   # Optional: RTSP -> HLS for your own IP cameras.

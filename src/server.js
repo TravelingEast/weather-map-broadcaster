@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const express = require('express');
 const { CameraStore, filterCameras, CATEGORIES, KINDS, LIVE_KINDS, STILL_KINDS } = require('./store');
 const { SnapshotService, MAX_IMAGE_BYTES } = require('./snapshots');
+const { ImpactService, HAZARDS } = require('./impact');
 
 const ROOT = path.join(__dirname, '..');
 
@@ -20,7 +21,7 @@ function bearer(req) {
   return h.startsWith('Bearer ') ? h.slice(7) : req.query.token || '';
 }
 
-function createApp({ dataDir, adminToken, retention, maxAgeHours, poll = true, log = console } = {}) {
+function createApp({ dataDir, adminToken, retention, maxAgeHours, poll = true, log = console, meteomatics = {} } = {}) {
   dataDir = dataDir || path.join(ROOT, 'data');
   const camerasFile = path.join(dataDir, 'cameras.json');
   if (!fs.existsSync(camerasFile)) {
@@ -30,7 +31,11 @@ function createApp({ dataDir, adminToken, retention, maxAgeHours, poll = true, l
 
   const store = new CameraStore(camerasFile);
   const snaps = new SnapshotService({ store, dir: path.join(dataDir, 'snapshots'), retention, maxAgeHours, log });
-  if (poll) snaps.start();
+  const impacts = new ImpactService({ store, file: path.join(dataDir, 'impact.json'), log, ...meteomatics });
+  if (poll) {
+    snaps.start();
+    impacts.start();
+  }
 
   const app = express();
   app.disable('x-powered-by');
@@ -60,6 +65,7 @@ function createApp({ dataDir, adminToken, retention, maxAgeHours, poll = true, l
         : c.poster || null,
       // Browser-side URL to play. Stills are served through our cache.
       playUrl: isStill ? `/api/cameras/${c.id}/latest` : c.url,
+      impact: impacts.summary(c),
     };
   };
 
@@ -81,7 +87,13 @@ function createApp({ dataDir, adminToken, retention, maxAgeHours, poll = true, l
       if (c.country) countries[c.country] = (countries[c.country] || 0) + 1;
       categories[c.category] = (categories[c.category] || 0) + 1;
     }
+    const impact = { 1: 0, 2: 0, 3: 0 };
+    for (const c of cams) {
+      const s = impacts.summary(c);
+      if (s && s.level) impact[s.level] += 1;
+    }
     res.json({
+      impact: { configured: impacts.configured, updatedAt: impacts.state.updatedAt, counts: impact },
       total: cams.length,
       live: cams.filter((c) => LIVE_KINDS.includes(c.kind)).length,
       still: cams.filter((c) => STILL_KINDS.includes(c.kind)).length,
@@ -106,6 +118,41 @@ function createApp({ dataDir, adminToken, retention, maxAgeHours, poll = true, l
       .slice(0, 8)
       .map((x) => ({ ...view(x), distanceKm: x.distanceKm }));
     res.json({ camera: view(c), nearby });
+  });
+
+  // Cameras ranked by forecast weather impact (Meteomatics).
+  app.get('/api/impact', (req, res) => {
+    const minLevel = req.query.minLevel != null ? Math.max(Number(req.query.minLevel) || 0, 0) : 1;
+    let list = filterCameras(store.all(), req.query)
+      .map((c) => view(c))
+      .filter((c) => (c.impact ? c.impact.level : 0) >= minLevel);
+    if (req.query.hazard) list = list.filter((c) => c.impact && c.impact.events.some((e) => e.type === req.query.hazard));
+    list.sort((a, b) => (b.impact ? b.impact.score : 0) - (a.impact ? a.impact.score : 0));
+    res.json({
+      configured: impacts.configured,
+      updatedAt: impacts.state.updatedAt,
+      horizonHours: impacts.state.horizonHours || impacts.horizonHours,
+      model: impacts.state.model || impacts.model,
+      error: impacts.state.error || null,
+      hazards: Object.fromEntries(Object.entries(HAZARDS).map(([k, v]) => [k, v.label])),
+      total: list.length,
+      cameras: list,
+    });
+  });
+
+  app.get('/api/cameras/:id/impact', (req, res) => {
+    const c = store.get(req.params.id);
+    if (!c || c.enabled === false) return res.status(404).json({ error: 'not found' });
+    const r = impacts.forCamera(c);
+    res.json({
+      configured: impacts.configured,
+      updatedAt: impacts.state.updatedAt,
+      error: impacts.state.error || null,
+      level: r ? r.level : null,
+      score: r ? r.score : null,
+      events: r ? r.events : [],
+      hours: r ? r.hours : [],
+    });
   });
 
   app.get('/api/cameras/:id/latest', (req, res) => {
@@ -192,6 +239,13 @@ function createApp({ dataDir, adminToken, retention, maxAgeHours, poll = true, l
     res.json({ camera: view(c, { admin: true }) });
   });
 
+  app.post('/api/admin/impact/refresh', requireAdmin, async (req, res) => {
+    if (!impacts.configured) return res.status(503).json({ error: 'Meteomatics credentials are not configured' });
+    const st = await impacts.refresh();
+    if (st.error) return res.status(502).json({ error: st.error });
+    res.json({ updatedAt: st.updatedAt, locations: Object.keys(st.byLocation).length });
+  });
+
   // Static front end and vendored libraries.
   const nm = path.join(ROOT, 'node_modules');
   app.use('/vendor/leaflet', express.static(path.join(nm, 'leaflet', 'dist'), { maxAge: '7d' }));
@@ -204,7 +258,7 @@ function createApp({ dataDir, adminToken, retention, maxAgeHours, poll = true, l
   // SPA routes: /, /map, /cam/:slug, /country/:cc, /category/:cat, /favorites, /admin, /embed/:slug
   app.get('*', (req, res) => res.sendFile(path.join(ROOT, 'public', 'index.html')));
 
-  return { app, store, snaps };
+  return { app, store, snaps, impacts };
 }
 
 if (require.main === module) {
@@ -214,10 +268,18 @@ if (require.main === module) {
     adminToken: process.env.ADMIN_TOKEN,
     retention: Number(process.env.SNAPSHOT_RETENTION) || 288,
     maxAgeHours: Number(process.env.SNAPSHOT_MAX_AGE_HOURS) || 72,
+    meteomatics: {
+      username: process.env.METEOMATICS_USERNAME,
+      password: process.env.METEOMATICS_PASSWORD,
+      model: process.env.METEOMATICS_MODEL || 'mix',
+      horizonHours: Number(process.env.IMPACT_HORIZON_HOURS) || 48,
+      refreshMinutes: Number(process.env.IMPACT_REFRESH_MINUTES) || 60,
+    },
   });
   app.listen(port, () => {
     console.log(`webcam platform listening on http://localhost:${port}`);
     if (!process.env.ADMIN_TOKEN) console.log('ADMIN_TOKEN not set: admin API is disabled.');
+    if (!process.env.METEOMATICS_USERNAME) console.log('METEOMATICS_USERNAME not set: weather impact scan is disabled.');
   });
 }
 
