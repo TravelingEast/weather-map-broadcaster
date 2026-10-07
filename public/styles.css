@@ -346,3 +346,8 @@ body.embed .player { border-radius: 0; height: 100vh; aspect-ratio: auto; }
   .storm-row { grid-template-columns: 96px minmax(0, 1fr); }
   .stat b { font-size: 1.15rem; }
 }
+
+/* Leaflet layer switcher in theme colors */
+.leaflet-control-layers { background: var(--panel); color: var(--text); border: 1px solid var(--line) !important; border-radius: 8px; }
+.leaflet-control-layers-expanded { padding: 8px 12px; }
+.leaflet-control-layers label { margin: 2px 0; }

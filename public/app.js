@@ -96,6 +96,7 @@
   function youtubeEmbed(input) {
     const s = String(input).trim();
     let m;
+    if (/^@|youtube\.com\/@/.test(s)) return { embed: null, id: null }; // handles need the server's live lookup
     if ((m = /^(UC[\w-]{22})$/.exec(s)) || (m = /youtube\.com\/channel\/(UC[\w-]{22})/.exec(s))) {
       return { embed: `https://www.youtube.com/embed/live_stream?channel=${m[1]}&autoplay=1&mute=1`, id: null };
     }
@@ -212,11 +213,12 @@
       const v = h('video', { controls: true, muted: true, autoplay: true, playsInline: true, poster: c.poster || null });
       v.muted = true;
       box.append(v);
+      const src = c.playUrl || c.url; // relayed through our server for DOT feeds without CORS
       if (v.canPlayType('application/vnd.apple.mpegurl')) {
-        v.src = c.url;
+        v.src = src;
       } else if (window.Hls && window.Hls.isSupported()) {
         const hls = new window.Hls({ liveDurationInfinity: true, lowLatencyMode: true });
-        hls.loadSource(c.url);
+        hls.loadSource(src);
         hls.attachMedia(v);
         hls.on(window.Hls.Events.ERROR, (_e, data) => {
           if (data.fatal) {
@@ -230,7 +232,16 @@
       }
       v.play().catch(() => {});
     } else if (c.kind === 'youtube') {
-      const { embed } = youtubeEmbed(c.url);
+      // Prefer the video the server found live right now; 24/7 streams change IDs when they restart.
+      const { embed } = c.liveVideoId
+        ? { embed: `https://www.youtube.com/embed/${c.liveVideoId}?autoplay=1&mute=1&playsinline=1` }
+        : c.status === 'offline'
+          ? { embed: null }
+          : youtubeEmbed(c.url);
+      if (!embed) {
+        box.append(h('div.msg', c.status === 'offline' ? 'This stream is not live right now. It will reappear when it comes back.' : 'Checking for the live stream…'));
+        return { el: box, destroy: () => {} };
+      }
       box.append(embed
         ? h('iframe', { src: embed, allow: 'autoplay; encrypted-media; picture-in-picture; fullscreen', allowFullscreen: true, title: c.name, referrerpolicy: 'strict-origin-when-cross-origin' })
         : h('div.msg', 'Invalid YouTube reference.'));
@@ -671,6 +682,63 @@
     );
   }
 
+  // ---------- basemaps (no API key needed) ----------
+
+  const ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services';
+  const esriAttr = 'Tiles © <a href="https://www.esri.com/">Esri</a>';
+  const BASEMAPS = {
+    Dark: () => L.layerGroup([
+      L.tileLayer(`${ESRI}/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}`, { maxNativeZoom: 16, maxZoom: 19, attribution: `${esriAttr}, HERE, Garmin, © OpenStreetMap contributors` }),
+      L.tileLayer(`${ESRI}/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}`, { maxNativeZoom: 16, maxZoom: 19 }),
+    ]),
+    Satellite: () => L.layerGroup([
+      L.tileLayer(`${ESRI}/World_Imagery/MapServer/tile/{z}/{y}/{x}`, { maxNativeZoom: 18, maxZoom: 19, attribution: `${esriAttr}, Maxar, Earthstar Geographics` }),
+      L.tileLayer(`${ESRI}/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}`, { maxNativeZoom: 18, maxZoom: 19 }),
+    ]),
+    Streets: () => L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19, attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    }),
+  };
+
+  // Adds the remembered basemap plus a switcher. If a basemap's tiles keep failing
+  // (provider down, blocked network), try each other basemap once instead of showing a blank map.
+  function addBasemap(map) {
+    const layers = Object.fromEntries(Object.entries(BASEMAPS).map(([k, make]) => [k, make()]));
+    const order = Object.keys(layers);
+    const saved = store.get('basemap', 'Dark');
+    let current = layers[saved] ? saved : 'Dark';
+    const tried = new Set([current]);
+    const stats = Object.fromEntries(order.map((k) => [k, { ok: 0, bad: 0 }]));
+    let gaveUp = false;
+    const failover = (name) => {
+      if (name !== current || gaveUp) return;
+      const st = stats[name];
+      if (st.ok > 0 || st.bad < 6) return;
+      const next = order.find((k) => !tried.has(k));
+      if (!next) {
+        gaveUp = true;
+        toast("Map tiles aren't loading. Check your network connection.");
+        return;
+      }
+      tried.add(next);
+      map.removeLayer(layers[name]);
+      current = next;
+      layers[next].addTo(map);
+      toast(`${name} map isn't loading. Switched to ${next}.`);
+    };
+    order.forEach((name) => {
+      const tiles = layers[name] instanceof L.TileLayer ? [layers[name]] : layers[name].getLayers();
+      tiles.forEach((t) => {
+        t.on('tileload', () => { stats[name].ok += 1; });
+        t.on('tileerror', () => { stats[name].bad += 1; failover(name); });
+      });
+    });
+    layers[current].addTo(map);
+    L.control.layers(layers, null, { position: 'bottomleft' }).addTo(map);
+    // A manual pick is remembered and resets the failover.
+    map.on('baselayerchange', (e) => { current = e.name; tried.add(e.name); gaveUp = false; store.set('basemap', e.name); });
+  }
+
   // ---------- storm tracker (NHC forecast track vs cameras) ----------
 
   const BANDS = [[50, 'Core: eyewall and worst surge'], [150, 'Strong impacts'], [Infinity, 'Outer rain bands']];
@@ -701,10 +769,11 @@
     const maxKm = params.get('maxKm') || '300';
     const type = params.get('type') || '';
     const category = params.get('category') || '';
-    const q = new URLSearchParams({ maxKm, ...(type ? { type } : {}), ...(category ? { category } : {}) });
+    const playable = params.get('playable') || 'true'; // default: only cameras working right now
+    const q = new URLSearchParams({ maxKm, playable, ...(type ? { type } : {}), ...(category ? { category } : {}) });
     const r = await api(`/api/storms/${st.id}/cameras?${q}`);
     const link = (patch) => {
-      const p = new URLSearchParams({ maxKm, type, category, ...patch });
+      const p = new URLSearchParams({ maxKm, type, category, playable, ...patch });
       [...p.keys()].forEach((k) => { if (!p.get(k)) p.delete(k); });
       return `/storm/${st.id}?${p}`;
     };
@@ -716,7 +785,9 @@
       h('span.muted', { style: { padding: '5px 4px' } }, '·'),
       [['', 'Any'], ['beach', 'Beach'], ['traffic', 'Traffic'], ['landmark', 'Landmark'], ['harbor', 'Harbor']].map(([v, t]) => h(`a.chip${category === v ? '.active' : ''}`, { href: link({ category: v }), 'data-link': true }, t)),
       h('span.muted', { style: { padding: '5px 4px' } }, '·'),
-      ['150', '300', '500'].map((v) => h(`a.chip${maxKm === v ? '.active' : ''}`, { href: link({ maxKm: v }), 'data-link': true }, `≤${v} km`)));
+      ['150', '300', '500'].map((v) => h(`a.chip${maxKm === v ? '.active' : ''}`, { href: link({ maxKm: v }), 'data-link': true }, `≤${v} km`)),
+      h('span.muted', { style: { padding: '5px 4px' } }, '·'),
+      h(`a.chip${playable === 'true' ? '.active' : ''}`, { href: link({ playable: playable === 'true' ? 'false' : 'true' }), 'data-link': true }, playable === 'true' ? '✓ Working now' : 'Including offline'));
 
     const peak = st.peak;
     const summary = h('div.panel.storm-head',
@@ -755,10 +826,7 @@
 
     const map = L.map(mapEl, { worldCopyJump: true });
     cleanup.push(() => map.remove());
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-      maxZoom: 19, subdomains: 'abcd',
-      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> © <a href="https://carto.com/attributions">CARTO</a>',
-    }).addTo(map);
+    addBasemap(map);
     const latlngs = st.points.map((p) => [p.lat, p.lon]);
     st.points.forEach((p) => L.circle([p.lat, p.lon], { radius: 150000, stroke: false, fillColor: '#ec835a', fillOpacity: 0.08, interactive: false }).addTo(map));
     L.polyline(latlngs, { color: '#ec835a', weight: 3, dashArray: '6 6' }).addTo(map);
@@ -898,10 +966,7 @@
     setView(h('div.map-page', mapEl, h('div.map-tools', btns, locate)));
 
     const map = L.map(mapEl, { worldCopyJump: true, zoomControl: true }).setView([25, -40], 3);
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-      maxZoom: 19, subdomains: 'abcd',
-      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> © <a href="https://carto.com/attributions">CARTO</a>',
-    }).addTo(map);
+    addBasemap(map);
     cleanup.push(() => map.remove());
 
     // In impact mode a cluster shows the worst level inside it, so nothing severe hides in a group.
@@ -1009,8 +1074,8 @@
     });
 
     const embedCode = `<iframe src="${location.origin}/embed/${c.slug}" width="640" height="360" frameborder="0" allowfullscreen></iframe>`;
-    const statusText = c.kind === 'link'
-      ? `Streams on ${hostOf(c.url)}`
+    const statusText = c.kind === 'youtube'
+      ? (c.status === 'online' ? 'Live now on YouTube' : c.status === 'offline' ? 'Not live right now' : 'Checking stream')
       : c.live
       ? (c.status === 'online' ? 'Stream reachable' : c.status === 'offline' ? 'Stream unreachable' : 'Embedded player')
       : c.lastOk ? `Updated ${ago(c.lastOk)}` : 'Waiting for first image';
@@ -1105,7 +1170,7 @@
         h('label', 'Type',
           h('select', { name: 'kind' },
             [['image', 'Still image URL (server polls it)'], ['push', 'Still image, camera pushes to us'], ['hls', 'Live HLS stream (.m3u8)'],
-              ['youtube', 'Live YouTube (video or channel ID)'], ['mjpeg', 'Live MJPEG stream'], ['iframe', 'Live embed (iframe URL)']]
+              ['youtube', 'Live YouTube (video ID, channel ID, or @handle)'], ['mjpeg', 'Live MJPEG stream'], ['iframe', 'Live embed (iframe URL)'], ['link', 'Link out (admin only, hidden from viewers)']]
               .map(([v, t]) => h('option', { value: v, selected: (c.kind || 'image') === v }, t)))),
         f('url', 'Source URL / ID'),
         h('div.two', f('lat', 'Latitude', { type: 'number', step: 'any', required: true }), f('lon', 'Longitude', { type: 'number', step: 'any', required: true })),

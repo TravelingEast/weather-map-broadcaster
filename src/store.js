@@ -61,6 +61,8 @@ function validateCamera(input, existing = null) {
   if (c.snapshotUrl && !isHttpUrl(c.snapshotUrl)) errors.push('snapshotUrl must be an http(s) URL');
   if (!c.snapshotUrl || c.kind === 'image' || c.kind === 'push') c.snapshotUrl = '';
   c.sourceKey = c.sourceKey ? String(c.sourceKey).slice(0, 120) : undefined;
+  // Relay HLS through our server when the source doesn't allow cross-origin playback.
+  c.relay = c.kind === 'hls' && Boolean(c.relay);
 
   c.category = CATEGORIES.includes(c.category) ? c.category : 'other';
   c.country = String(c.country || '').toUpperCase().slice(0, 2);
@@ -207,8 +209,15 @@ function haversineKm(a, b) {
 }
 
 // Filter cameras by query params: q, country, category, type (live|still), kind, bbox, featured.
+// Viewers only see cameras that play inside the app: link-out cams are admin-only,
+// and playable=true also drops cams whose last check found them offline.
 function filterCameras(cameras, params = {}) {
-  let list = cameras.filter((c) => c.enabled !== false);
+  let list = cameras.filter((c) => c.enabled !== false && (params.includeLinks || c.kind !== 'link'));
+  if (params.statusOf) {
+    // A YouTube cam that isn't live (or blocks embedding) has nothing to show, so it's always hidden.
+    list = list.filter((c) => !(c.kind === 'youtube' && params.statusOf(c) === 'offline'));
+    if (params.playable === 'true') list = list.filter((c) => params.statusOf(c) !== 'offline');
+  }
   const q = String(params.q || '').trim().toLowerCase();
   if (q) {
     const terms = q.split(/\s+/);

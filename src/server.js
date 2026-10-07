@@ -9,6 +9,8 @@ const { SnapshotService, MAX_IMAGE_BYTES } = require('./snapshots');
 const { ImpactService, HAZARDS } = require('./impact');
 const { importSource, SOURCES, AREAS } = require('./importers');
 const { StormService } = require('./storms');
+const { relayRoutes } = require('./relay');
+const { parseYouTubeRef } = require('./youtube');
 
 const ROOT = path.join(__dirname, '..');
 
@@ -87,9 +89,14 @@ function createApp({ dataDir, adminToken, retention, maxAgeHours, concurrency, p
       lastChecked: s.lastChecked,
       error: admin ? s.error : undefined,
       archived,
-      thumbnail: archived && s.lastOk ? `/api/cameras/${c.id}/latest?t=${s.lastOk}` : isStill ? null : c.poster || null,
+      liveVideoId: c.kind === 'youtube' ? s.liveVideoId || null : undefined,
+      thumbnail: archived && s.lastOk
+        ? `/api/cameras/${c.id}/latest?t=${s.lastOk}`
+        : c.kind === 'youtube' && (s.liveVideoId || (parseYouTubeRef(c.url) || {}).type === 'video')
+          ? `https://i.ytimg.com/vi/${s.liveVideoId || parseYouTubeRef(c.url).value}/hqdefault.jpg`
+          : isStill ? null : c.poster || null,
       // Browser-side URL to play. Stills are served through our cache.
-      playUrl: isStill ? `/api/cameras/${c.id}/latest` : c.url,
+      playUrl: isStill ? `/api/cameras/${c.id}/latest` : c.relay ? `/api/cameras/${c.id}/relay/index.m3u8` : c.url,
       impact: impacts.summary(c),
     };
   };
@@ -131,13 +138,14 @@ function createApp({ dataDir, adminToken, retention, maxAgeHours, concurrency, p
 
   app.get('/api/cameras', (req, res) => {
     const limit = Math.min(Number(req.query.limit) || 500, 2000);
-    const list = filterCameras(store.all(), req.query);
+    const list = filterCameras(store.all(), { ...req.query, includeLinks: false, statusOf: (c) => snaps.getStatus(c.id).status });
     res.json({ total: list.length, cameras: list.slice(0, limit).map((c) => view(c)) });
   });
 
   app.get('/api/cameras/:id', (req, res) => {
     const c = store.get(req.params.id);
-    if (!c || c.enabled === false) return res.status(404).json({ error: 'not found' });
+    // Link-out cams are admin-only: viewers only get cameras that play here.
+    if (!c || c.enabled === false || c.kind === 'link') return res.status(404).json({ error: 'not found' });
     const nearby = filterCameras(store.all(), { near: `${c.lat},${c.lon}` })
       .filter((x) => x.id !== c.id)
       .slice(0, 8)
@@ -154,7 +162,7 @@ function createApp({ dataDir, adminToken, retention, maxAgeHours, concurrency, p
   // Cameras ranked by forecast weather impact (Meteomatics).
   app.get('/api/impact', (req, res) => {
     const minLevel = req.query.minLevel != null ? Math.max(Number(req.query.minLevel) || 0, 0) : 1;
-    let list = filterCameras(store.all(), req.query)
+    let list = filterCameras(store.all(), { ...req.query, includeLinks: false, statusOf: (c) => snaps.getStatus(c.id).status })
       .map((c) => view(c))
       .filter((c) => (c.impact ? c.impact.level : 0) >= minLevel);
     if (req.query.hazard) list = list.filter((c) => c.impact && c.impact.events.some((e) => e.type === req.query.hazard));
@@ -195,7 +203,7 @@ function createApp({ dataDir, adminToken, retention, maxAgeHours, concurrency, p
     const st = storms.get(req.params.id);
     if (!st) return res.status(404).json({ error: 'not found' });
     const maxKm = Math.min(Number(req.query.maxKm) || 300, 1500);
-    const list = filterCameras(store.all(), req.query);
+    const list = filterCameras(store.all(), { ...req.query, includeLinks: false, statusOf: (c) => snaps.getStatus(c.id).status });
     const near = storms.camerasNear(st, list, maxKm).map(({ c, a }) => ({ ...view(c), approach: a, forecast: forecastAround(c, a.at) }));
     res.json({ storm: stormSummary(st), maxKm, total: near.length, cameras: near });
   });
@@ -340,6 +348,8 @@ function createApp({ dataDir, adminToken, retention, maxAgeHours, concurrency, p
     const pack = JSON.parse(fs.readFileSync(path.join(packDir, `${req.params.id}.json`), 'utf8'));
     res.json(store.upsertMany(pack.cameras || []));
   });
+
+  relayRoutes(app, { store, log });
 
   // Static front end and vendored libraries.
   const nm = path.join(ROOT, 'node_modules');

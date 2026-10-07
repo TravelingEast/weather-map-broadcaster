@@ -49,6 +49,7 @@ function parseAlgo(data) {
       url: hls || snapshot,
       snapshotUrl: hls ? snapshot : '',
       poster: hls ? snapshot : '',
+      relay: Boolean(hls), // DOT streams often lack CORS headers; play them through our relay
       county: clean(loc.county),
     };
   });

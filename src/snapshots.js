@@ -1,6 +1,7 @@
 'use strict';
 
 const fs = require('fs');
+const { parseYouTubeRef, parseYouTubePage, pageUrl } = require('./youtube');
 const path = require('path');
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -171,6 +172,26 @@ class SnapshotService {
     return this.setStatus(cam.id, { status: 'online', lastOk: Date.now(), error: null });
   }
 
+  // Resolve the live video for a YouTube cam and confirm it can be embedded.
+  // Online only when it is live now and embeddable, so the viewer never gets a dead or blocked player.
+  async checkYouTube(cam) {
+    const ref = parseYouTubeRef(cam.url);
+    if (!ref) throw new Error('not a YouTube video, channel, or handle');
+    const res = await fetchWithTimeout(pageUrl(ref), {
+      headers: {
+        // YouTube serves a consent or bot page to unknown agents.
+        'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36',
+        'accept-language': 'en-US,en;q=0.9',
+      },
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const page = parseYouTubePage((await readLimited(res, 4 * 1024 * 1024)).toString('utf8'));
+    if (!page.videoId) throw new Error(ref.type === 'video' ? 'video not found' : 'channel is not live');
+    if (!page.live) return this.setStatus(cam.id, { status: 'offline', error: 'not live right now', liveVideoId: null });
+    if (!page.embeddable) return this.setStatus(cam.id, { status: 'offline', error: 'owner disabled embedding', liveVideoId: null });
+    return this.setStatus(cam.id, { status: 'online', lastOk: Date.now(), error: null, liveVideoId: page.videoId, liveTitle: page.title });
+  }
+
   async checkMjpeg(cam) {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
@@ -189,7 +210,8 @@ class SnapshotService {
     if (!s.lastChecked) return true;
     const interval = cam.kind === 'image' || cam.snapshotUrl ? cam.refreshSeconds * 1000 : 10 * 60 * 1000;
     // Back off on failures: double the wait, capped at 1 h.
-    const backoff = s.status === 'offline' ? Math.min(interval * 2 ** Math.min(s.failures || 0, 6), 3600 * 1000) : interval;
+    const cap = cam.kind === 'youtube' ? 20 * 60 * 1000 : 3600 * 1000;
+    const backoff = s.status === 'offline' ? Math.min(interval * 2 ** Math.min(s.failures || 0, 6), cap) : interval;
     return Date.now() - s.lastChecked >= backoff;
   }
 
@@ -207,6 +229,7 @@ class SnapshotService {
       if (cam.kind === 'image' || cam.snapshotUrl) s = await this.pollImage(cam);
       else if (cam.kind === 'hls') s = await this.checkHls(cam);
       else if (cam.kind === 'mjpeg') s = await this.checkMjpeg(cam);
+      else if (cam.kind === 'youtube') s = await this.checkYouTube(cam);
       else if (cam.kind === 'push') {
         // Push cams go stale if no frame arrives within 3x their expected interval.
         const st = this.getStatus(cam.id);

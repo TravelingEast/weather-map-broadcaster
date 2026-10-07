@@ -117,13 +117,21 @@ curl -X POST -H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: applicati
 
 | Source | Feed | What you get |
 |---|---|---|
-| `algo` | `api.algotraffic.com/v4/Cameras` (Alabama, no key) | Live HLS video plus a snapshot per camera, which the server archives for timelapse |
+| `algo` | `api.algotraffic.com/v4/Cameras` (Alabama, no key) | Live HLS video (played through the relay) plus a snapshot per camera, which the server archives for timelapse |
 | `fl511` | `fl511.com/map/mapIcons/Cameras` (Florida, no key) | Stills from `fl511.com/map/Cctv/{id}` |
 | `la511` | `511la.org/map/mapIcons/Cameras` (Louisiana, no key) | Stills, same Iteris platform as FL511 |
 
 `bbox` takes a named area (`north-gulf`, `gulf-coast`, `mobile-bay`, `mississippi-coast`, `new-orleans`, `pensacola-destin`) or `west,south,east,north`. Re-running an import updates cameras in place and keeps your featured/enabled choices. Field mappings follow the open-source [roadie](https://github.com/bobbyearl/roadie) project's fetchers. These are unofficial public map feeds and can change without notice. Mississippi's MDOT has no public feed, so it's in the watchlist as a link.
 
-Curated packs live in `seed/packs/`. `isaias-north-gulf` adds 16 public beach, landmark, harbor, and field-team streams from Grand Isle to Panama City Beach (EarthCam, SkylineWebcams, WAFB, HurricaneTrack, and others). Sites that don't allow embedding are added as `link` cameras. They show on the map and in the Storm Tracker and open the stream on the owner's site.
+Curated packs live in `seed/packs/`. `isaias-north-gulf` adds 21 YouTube live streams from New Orleans to Destin: beaches, piers, Bourbon Street, the Bayou La Batre lift bridge, Biloxi, and Ryan Hall's live coverage.
+
+### Every camera plays in the app
+
+Viewers never get sent to another site.
+
+- **YouTube** cams accept a video ID, a channel ID, or an `@handle`. Every 10 minutes the server reads the YouTube page to find the video that is live right now and confirm the owner allows embedding. 24/7 streams change video IDs when they restart, and a handle always follows the current one. Cams that aren't live or block embedding are hidden from viewers until they come back.
+- **DOT HLS** video (ALGO imports) plays through the server's relay at `/api/cameras/:id/relay/index.m3u8`, because state DOT servers often don't send the CORS headers browsers need. The relay only fetches hosts that belong to that camera, so it isn't an open proxy. Check the agency's terms before running it as a public site.
+- **`link`** cams (EarthCam, SkylineWebcams and other sites that don't allow embedding) are admin-only. They are hidden from every viewer page and API. To show those cams legitimately, license them: EarthCam and SkylineWebcams both sell embed rights.
 
 ### Recording a storm
 
@@ -179,4 +187,4 @@ npm test
 - The admin token is a single shared secret. Put the site behind HTTPS.
 - The server fetches whatever still-image URLs admins enter. Only give admin access to people you trust.
 - Meteomatics credentials stay on the server. Browsers only see the computed results.
-- Current-conditions weather and map tiles load from Open-Meteo and CARTO/OpenStreetMap in the viewer's browser.
+- Current-conditions weather and map tiles load from Open-Meteo, Esri and OpenStreetMap in the viewer's browser. None need an API key. Esri basemaps are free with attribution for low-volume use; check Esri's terms before running this as a high-traffic public site.

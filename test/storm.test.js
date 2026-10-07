@@ -109,21 +109,21 @@ test('import endpoint upserts by sourceKey and respects the area', async () => {
   } finally { t.close(); }
 });
 
-test('Isaias pack loads link cams, idempotently', async () => {
+test('Isaias pack loads only in-app playable cams, idempotently', async () => {
   const t = await boot();
   try {
     const packs = await t.call('/api/admin/packs');
     const pack = packs.body.packs.find((p) => p.id === 'isaias-north-gulf');
-    assert.ok(pack && pack.count >= 10);
+    assert.ok(pack && pack.count >= 15);
     const r1 = await t.call('/api/admin/packs/isaias-north-gulf', { method: 'POST' });
     assert.equal(r1.body.created, pack.count);
     assert.deepEqual(r1.body.errors, []);
     const r2 = await t.call('/api/admin/packs/isaias-north-gulf', { method: 'POST' });
     assert.deepEqual([r2.body.created, r2.body.updated], [0, pack.count]);
-    const bourbon = t.store.all().find((c) => c.sourceKey === 'pack:earthcam-bourbon');
-    const pub = await t.call(`/api/cameras/${bourbon.slug}`);
-    assert.equal(pub.body.camera.kind, 'link');
-    assert.equal(pub.body.camera.live, true);
+    const cams = t.store.all().filter((c) => (c.sourceKey || '').startsWith('pack:'));
+    assert.ok(cams.every((c) => c.kind === 'youtube'), 'no link-out cams');
+    const navarre = cams.find((c) => c.sourceKey === 'pack:yt-navarre-pier');
+    assert.equal(navarre.url, '@NavarreBeachPierLive');
   } finally { t.close(); }
 });
 
